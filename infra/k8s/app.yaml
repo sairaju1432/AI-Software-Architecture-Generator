@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Secret
+metadata: { name: archgen-secrets, namespace: archgen }
+type: Opaque
+stringData:
+  DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/archgen
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: replace-me
+  GEMINI_API_KEY: replace-me
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: backend, namespace: archgen }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: backend } }
+  template:
+    metadata: { labels: { app: backend } }
+    spec:
+      containers:
+      - name: backend
+        image: ghcr.io/example/archgen-backend:latest
+        ports: [{ containerPort: 8000 }]
+        envFrom: [{ secretRef: { name: archgen-secrets } }]
+        readinessProbe: { httpGet: { path: /health, port: 8000 }, initialDelaySeconds: 10, periodSeconds: 10 }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: backend, namespace: archgen }
+spec: { selector: { app: backend }, ports: [{ port: 8000, targetPort: 8000 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: frontend, namespace: archgen }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: frontend } }
+  template:
+    metadata: { labels: { app: frontend } }
+    spec:
+      containers:
+      - name: frontend
+        image: ghcr.io/example/archgen-frontend:latest
+        ports: [{ containerPort: 3000 }]
+        env: [{ name: NEXT_PUBLIC_API_URL, value: https://api.example.com/api/v1 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: frontend, namespace: archgen }
+spec: { selector: { app: frontend }, ports: [{ port: 3000, targetPort: 3000 }] }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: backend-hpa, namespace: archgen }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: backend }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } } }]
